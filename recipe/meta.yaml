@@ -2,56 +2,78 @@
 {% set version = "20250625" %}
 
 package:
-  name: {{ name|lower }}
+  name: {{ name }}
   version: {{ version }}
 
 source:
-  url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/openai_whisper-{{ version }}.tar.gz
+  url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name | replace("-", "_") }}-{{ version }}.tar.gz
   sha256: 37a91a3921809d9f44748ffc73c0a55c9f366c85a3ef5c2ae0cc09540432eb96
-  patches:
-    - 000-utf8.patch
-    - 001-pyproject.patch
+  # conda-forge's 000-utf8.patch and 001-pyproject.patch stay in recipe/ for resync
+  # parity but are intentionally not applied: the first backports an unmerged upstream
+  # PR (openai/whisper#907), the second deletes upstream's declared triton dependency.
 
 build:
-  entry_points:
-    - whisper=whisper.transcribe:cli
-  script: {{ PYTHON }} -m pip install . -vv --no-deps
   number: 0
-  noarch: python
+  # pyproject.toml: requires-python >=3.8
+  skip: true  # [py<38]
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  entry_points:
+    - whisper = whisper.transcribe:cli
 
 requirements:
   host:
-    - python {{ python_min }}
+    - python
     - pip
     - setuptools >=61.2
   run:
-    - python >={{ python_min }}
+    - python
+    - more-itertools
     - numba
     - numpy
-    - pytorch
-    - tqdm
-    - more-itertools
+    - pytorch  # analint: cbc_dep_in_run_missing_from_host  # runtime-only dep of a pure-Python package
+    # Not in pyproject.toml: unconditional `import regex` in whisper/normalizers/basic.py.
+    - regex
     - tiktoken
-    - ffmpeg
-  run_constrained:
-    - triton >=2.0.0
+    - tqdm
+    # pyproject.toml: triton>=2 on linux x86_64 only (CUDA kernels in whisper/triton_ops.py).
+    - triton >=2  # [linux and x86_64]
+    # Not in pyproject.toml: whisper.audio.load_audio shells out to the ffmpeg CLI.
+    - ffmpeg  # analint: cbc_dep_in_run_missing_from_host  # runtime-only dep of a pure-Python package
 
 test:
-  requires:
-    - python {{ python_min }}
-    - pip
+  source_files:
+    - tests
   imports:
     - whisper
+  requires:
+    - pip
+    - pytest
+    - scipy
+    # win-64: next to numba the solver picks pytorch's cpu_openblas build 0, which declares no
+    # OpenMP runtime (PKG-18188) and fails test_median_filter; test against the MKL variant.
+    - pytorch * cpu_mkl*  # [win]
   commands:
-    - whisper --help
     - pip check
+    - whisper --help
+    # Skipped: test_audio.py needs tests/jfk.flac (absent from the sdist);
+    # test_transcribe.py downloads model weights; requires_cuda tests need a GPU.
+    - python -m pytest tests/test_tokenizer.py tests/test_normalizer.py tests/test_timing.py -m "not requires_cuda"
 
 about:
   home: https://github.com/openai/whisper
-  summary: Robust Speech Recognition via Large-Scale Weak Supervision
   license: MIT
+  license_family: MIT
   license_file: LICENSE
+  summary: Robust Speech Recognition via Large-Scale Weak Supervision
+  description: |
+    Whisper is a general-purpose speech recognition model. It is trained on a
+    large dataset of diverse audio and is also a multitasking model that can
+    perform multilingual speech recognition, speech translation, and language
+    identification.
+  doc_url: https://github.com/openai/whisper
+  dev_url: https://github.com/openai/whisper
 
 extra:
   recipe-maintainers:
     - hoxbro
+    - xkong-anaconda

@@ -27,3 +27,6 @@
 /output
 # Pixi's configuration
 .pixi
+
+# AnacondaRecipes version-tracking config (not managed by conda-smithy)
+!/anaconda.yaml
